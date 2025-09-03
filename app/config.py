@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     
     # CORS
     FRONTEND_URL: str = "http://localhost:8080"
-    BACKEND_CORS_ORIGINS: list = ["http://localhost:8080", "http://localhost:3000", "*"]
+    BACKEND_CORS_ORIGINS: list = [
+        "http://localhost:8080", 
+        "http://localhost:3000", 
+        "https://ai-regu-guide-41.onrender.com"
+    ]
     
     # Email (optional for now)
     SMTP_HOST: Optional[str] = None

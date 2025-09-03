@@ -25,7 +25,13 @@ app = FastAPI(
 # Configure CORS - Allow all origins for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080", "http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:8080", 
+        "http://127.0.0.1:8080", 
+        "http://localhost:3000",
+        "https://ai-regu-guide-41.onrender.com",  # Production frontend
+        settings.FRONTEND_URL  # From environment variable
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],
