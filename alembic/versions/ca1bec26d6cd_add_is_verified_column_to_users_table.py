@@ -19,8 +19,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add is_verified column to users table
-    op.add_column('users', sa.Column('is_verified', sa.Boolean(), nullable=False, server_default='false'))
+    # Add is_verified column to users table (only if it doesn't exist)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [col['name'] for col in inspector.get_columns('users')]
+    
+    if 'is_verified' not in columns:
+        op.add_column('users', sa.Column('is_verified', sa.Boolean(), nullable=False, server_default='false'))
 
 
 def downgrade() -> None:
