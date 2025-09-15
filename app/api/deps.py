@@ -8,7 +8,7 @@ from app.database import get_db
 from app.core.security import decode_token
 from app.core.auth import get_user_by_id
 from app.models.user import User
-from app.models.organization import Organization, UserOrganization
+from app.models.organization import Organization, UserOrganization, UserRole
 from app.services.seed_data import database_seeder
 import uuid
 
@@ -124,3 +124,24 @@ async def get_user_organization(
             )
     
     return organization
+
+
+async def require_admin_role(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    """Require user to have admin or compliance officer role"""
+    
+    # Check user's role in their organization
+    result = await db.execute(
+        select(UserOrganization).where(UserOrganization.user_id == current_user.id)
+    )
+    user_org = result.scalar_one_or_none()
+    
+    if not user_org or user_org.role not in [UserRole.OWNER, UserRole.ADMIN, UserRole.COMPLIANCE_OFFICER]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or Compliance Officer role required"
+        )
+    
+    return current_user

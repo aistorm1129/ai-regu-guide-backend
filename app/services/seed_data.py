@@ -29,7 +29,7 @@ class DatabaseSeeder:
                 "name": "EU AI Act",
                 "code": "EU-AI-ACT",
                 "description": "European Union Artificial Intelligence Act - Comprehensive AI regulation framework",
-                "regulation_type": "MANDATORY",
+                "regulation_type": RegulationType.EU_AI_ACT,
                 "effective_date": datetime(2024, 8, 1),
                 "compliance_requirements": [
                     "High-Risk AI System Registration",
@@ -66,7 +66,7 @@ class DatabaseSeeder:
                 "name": "US AI Governance",
                 "code": "US-AI-GOV",
                 "description": "NIST AI Framework and Executive Orders on AI safety and security",
-                "regulation_type": "FRAMEWORK",
+                "regulation_type": RegulationType.US_AI_GOVERNANCE,
                 "effective_date": datetime(2023, 10, 30),
                 "compliance_requirements": [
                     "AI Risk Management Framework Implementation",
@@ -101,7 +101,7 @@ class DatabaseSeeder:
                 "name": "ISO/IEC 42001",
                 "code": "ISO-42001",
                 "description": "International standard for AI management systems",
-                "regulation_type": "STANDARD",
+                "regulation_type": RegulationType.ISO_42001,
                 "effective_date": datetime(2023, 12, 18),
                 "compliance_requirements": [
                     "AI Management System Framework",
@@ -148,7 +148,7 @@ class DatabaseSeeder:
                                  RegulationType.US_AI_GOVERNANCE if "US" in jurisdiction_data["name"] else 
                                  RegulationType.ISO_42001 if "ISO" in jurisdiction_data["name"] else RegulationType.CUSTOM,
                 "effective_date": jurisdiction_data.get("effective_date"),
-                "requirements": {
+                "requirements_data": {
                     "compliance_requirements": jurisdiction_data.get("compliance_requirements", []),
                     "rules": jurisdiction_data.get("rules", {})
                 }

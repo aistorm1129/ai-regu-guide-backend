@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Enum, Integer
-from sqlalchemy.dialects.postgresql import UUID, JSON
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Text, Enum, Integer, UUID as SQLAlchemyUUID
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -17,7 +17,7 @@ class QuestionType(str, enum.Enum):
 class FormQuestion(Base):
     __tablename__ = "form_questions"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     category = Column(String(255), nullable=False)
     question = Column(Text, nullable=False)
     question_type = Column(Enum(QuestionType), nullable=False)
@@ -37,10 +37,10 @@ class FormQuestion(Base):
 class FormResponse(Base):
     __tablename__ = "form_responses"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    question_id = Column(UUID(as_uuid=True), ForeignKey("form_questions.id"), nullable=False)
+    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    question_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("form_questions.id"), nullable=False)
     answer = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)

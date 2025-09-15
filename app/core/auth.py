@@ -1,7 +1,7 @@
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.models.user import User, OAuthAccount
+from app.models.user import User
 from app.core.security import verify_password, get_password_hash
 import uuid
 
@@ -68,53 +68,6 @@ async def create_user(
     return user
 
 
-async def get_or_create_oauth_user(
-    db: AsyncSession,
-    email: str,
-    oauth_name: str,
-    oauth_id: str,
-    full_name: Optional[str] = None,
-    access_token: Optional[str] = None
-) -> User:
-    """Get or create user from OAuth provider"""
-    # Check if user exists
-    user = await get_user_by_email(db, email)
-    
-    if not user:
-        # Create new user
-        user = await create_user(
-            db=db,
-            email=email,
-            full_name=full_name,
-            is_verified=True  # OAuth users are pre-verified
-        )
-    
-    # Check if OAuth account exists
-    result = await db.execute(
-        select(OAuthAccount).where(
-            OAuthAccount.user_id == user.id,
-            OAuthAccount.oauth_name == oauth_name
-        )
-    )
-    oauth_account = result.scalar_one_or_none()
-    
-    if not oauth_account:
-        # Create OAuth account link
-        oauth_account = OAuthAccount(
-            user_id=user.id,
-            oauth_name=oauth_name,
-            oauth_id=oauth_id,
-            access_token=access_token
-        )
-        db.add(oauth_account)
-    else:
-        # Update access token
-        oauth_account.access_token = access_token
-    
-    await db.flush()
-    await db.refresh(user)
-    
-    return user
 
 
 async def update_user_password(db: AsyncSession, user: User, new_password: str) -> User:

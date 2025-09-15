@@ -1,5 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, UUID as SQLAlchemyUUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -25,7 +24,7 @@ class UserRole(str, enum.Enum):
 class Organization(Base):
     __tablename__ = "organizations"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     industry = Column(String(100), nullable=True)
     size = Column(Enum(OrganizationSize), nullable=True)
@@ -40,14 +39,14 @@ class Organization(Base):
     documents = relationship("Document", back_populates="organization", cascade="all, delete-orphan")
     compliance_tasks = relationship("ComplianceTask", back_populates="organization", cascade="all, delete-orphan")
     compliance_reports = relationship("ComplianceReport", back_populates="organization", cascade="all, delete-orphan")
-    ai_systems = relationship("AISystem", back_populates="organization", cascade="all, delete-orphan")
+    compliance_assessments = relationship("ComplianceAssessment", back_populates="organization", cascade="all, delete-orphan")
 
 
 class UserOrganization(Base):
     __tablename__ = "user_organizations"
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    organization_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
     role = Column(Enum(UserRole), nullable=False, default=UserRole.MEMBER)
     joined_at = Column(DateTime, default=datetime.utcnow)
     

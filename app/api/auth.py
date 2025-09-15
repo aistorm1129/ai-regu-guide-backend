@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas.user import UserCreate, UserLogin, UserResponse
 from app.schemas.auth import Token, TokenRefresh, GoogleAuthRequest, GoogleAuthURL
-from app.core.auth import authenticate_user, create_user, get_user_by_email, get_or_create_oauth_user
+from app.core.auth import authenticate_user, create_user, get_user_by_email
 from app.core.security import create_token_response, decode_token
 from app.core.google_auth import google_auth
 from app.config import settings
@@ -134,15 +134,15 @@ async def google_callback(
                 detail="Email not provided by Google"
             )
         
-        # Get or create user
-        user = await get_or_create_oauth_user(
-            db=db,
-            email=user_info["email"],
-            oauth_name="google",
-            oauth_id=user_info["google_id"],
-            full_name=user_info.get("full_name"),
-            access_token=user_info.get("access_token")
-        )
+        # Get or create user (simplified - no OAuth account tracking)
+        user = await get_user_by_email(db, user_info["email"])
+        if not user:
+            user = await create_user(
+                db=db,
+                email=user_info["email"],
+                full_name=user_info.get("full_name"),
+                is_verified=True  # OAuth users are pre-verified
+            )
         
         # Generate tokens
         tokens = create_token_response(str(user.id), user.email)
@@ -167,15 +167,15 @@ async def google_callback_redirect(
         # Authenticate with Google
         user_info = await google_auth.authenticate(code)
         
-        # Get or create user
-        user = await get_or_create_oauth_user(
-            db=db,
-            email=user_info["email"],
-            oauth_name="google",
-            oauth_id=user_info["google_id"],
-            full_name=user_info.get("full_name"),
-            access_token=user_info.get("access_token")
-        )
+        # Get or create user (simplified - no OAuth account tracking)
+        user = await get_user_by_email(db, user_info["email"])
+        if not user:
+            user = await create_user(
+                db=db,
+                email=user_info["email"],
+                full_name=user_info.get("full_name"),
+                is_verified=True  # OAuth users are pre-verified
+            )
         
         # Generate tokens
         tokens = create_token_response(str(user.id), user.email)

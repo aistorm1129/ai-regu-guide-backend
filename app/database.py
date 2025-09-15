@@ -41,6 +41,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+def get_async_session():
+    """Get async session for background tasks"""
+    return AsyncSessionLocal()
+
+
 async def init_db():
     """Initialize database tables"""
     try:

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
 from app.database import init_db
-from app.api import auth, users, compliance, documents, dashboard, jurisdictions, tasks, reports, organizations, form_questions
+from app.api import auth, users, compliance, documents, dashboard, jurisdictions, tasks, reports, organizations, form_questions, admin
 
 
 @asynccontextmanager
@@ -48,6 +48,7 @@ app.include_router(tasks.router, prefix="/api/tasks", tags=["Tasks"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(organizations.router, prefix="/api/organizations", tags=["Organizations"])
 app.include_router(form_questions.router, prefix="/api/forms", tags=["Forms"])
+app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 
 @app.get("/")

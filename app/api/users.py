@@ -1,18 +1,28 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.database import get_db
 from app.schemas.user import UserResponse, UserUpdate
 from app.api.deps import get_current_user, get_current_verified_user
 from app.models.user import User
+from app.models.organization import UserOrganization
 
 router = APIRouter()
 
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get current user information"""
+    
+    # Get user's organization role
+    result = await db.execute(
+        select(UserOrganization).where(UserOrganization.user_id == current_user.id)
+    )
+    user_org = result.scalar_one_or_none()
+    
     # Convert User model to dict and ensure plan is serialized as string
     user_data = {
         "id": current_user.id,
@@ -21,6 +31,8 @@ async def get_current_user_info(
         "plan": current_user.plan.value if current_user.plan else "basic",
         "is_active": current_user.is_active,
         "is_verified": current_user.is_verified,
+        "is_superuser": current_user.is_superuser,
+        "organization_role": user_org.role.value if user_org else "member",
         "created_at": current_user.created_at
     }
     return user_data

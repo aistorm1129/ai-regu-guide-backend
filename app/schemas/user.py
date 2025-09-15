@@ -29,6 +29,8 @@ class UserResponse(UserBase):
     id: UUID
     is_active: bool
     is_verified: bool
+    is_superuser: Optional[bool] = False
+    organization_role: Optional[str] = "member"
     created_at: datetime
     
     @field_serializer('plan')

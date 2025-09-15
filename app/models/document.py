@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Text, Integer
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, DateTime, ForeignKey, Enum, Text, Integer, UUID as SQLAlchemyUUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -28,17 +28,14 @@ class AnalysisStatus(str, enum.Enum):
 class Document(Base):
     __tablename__ = "documents"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     filename = Column(String(255), nullable=False)
     file_path = Column(String(500), nullable=False)  # S3 URL or local path
-    file_size = Column(Integer, nullable=True)  # in bytes
-    mime_type = Column(String(100), nullable=True)
     document_type = Column(Enum(DocumentType), nullable=False, default=DocumentType.OTHER)
     description = Column(Text, nullable=True)
-    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    uploaded_by = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     upload_date = Column(DateTime, default=datetime.utcnow)
-    file_metadata = Column(JSONB, nullable=True)  # Additional metadata
     
     # Relationships
     organization = relationship("Organization", back_populates="documents")
@@ -49,8 +46,9 @@ class Document(Base):
 class DocumentAnalysis(Base):
     __tablename__ = "document_analyses"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    jurisdiction_id = Column(SQLAlchemyUUID(as_uuid=True), ForeignKey("jurisdictions.id"), nullable=True)
     analysis_type = Column(String(100), nullable=False)  # e.g., "compliance_check", "risk_assessment"
     status = Column(Enum(AnalysisStatus), default=AnalysisStatus.PENDING, nullable=False)
     result = Column(JSONB, nullable=True)  # Structured analysis results
@@ -63,3 +61,4 @@ class DocumentAnalysis(Base):
     
     # Relationships
     document = relationship("Document", back_populates="analyses")
+    jurisdiction = relationship("Jurisdiction")

@@ -85,9 +85,6 @@ async def list_tasks(
             "status": task.status.value,
             "priority": task.priority.value,
             "due_date": task.due_date.isoformat() if task.due_date else None,
-            "estimated_hours": task.estimated_hours,
-            "actual_hours": task.actual_hours,
-            "completion_percentage": task.completion_percentage,
             "created_at": task.created_at.isoformat(),
             "updated_at": task.updated_at.isoformat() if task.updated_at else None,
             "jurisdiction": {
@@ -153,7 +150,6 @@ async def create_task(
         priority=TaskPriority(task_data["priority"]),
         status=TaskStatus(task_data.get("status", "todo")),
         due_date=due_date,
-        estimated_hours=task_data.get("estimated_hours"),
         assignee_id=task_data.get("assigned_to"),
         created_at=datetime.utcnow()
     )
@@ -201,9 +197,6 @@ async def get_task(
         "status": task.status.value,
         "priority": task.priority.value,
         "due_date": task.due_date.isoformat() if task.due_date else None,
-        "estimated_hours": task.estimated_hours,
-        "actual_hours": task.actual_hours,
-        "completion_percentage": task.completion_percentage,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
         "jurisdiction": {
@@ -270,18 +263,6 @@ async def update_task(
             update_fields["due_date"] = datetime.fromisoformat(task_data["due_date"].replace('Z', '+00:00'))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid due_date format")
-    
-    if "estimated_hours" in task_data:
-        update_fields["estimated_hours"] = task_data["estimated_hours"]
-    
-    if "actual_hours" in task_data:
-        update_fields["actual_hours"] = task_data["actual_hours"]
-    
-    if "completion_percentage" in task_data:
-        percentage = task_data["completion_percentage"]
-        if not 0 <= percentage <= 100:
-            raise HTTPException(status_code=400, detail="Completion percentage must be between 0 and 100")
-        update_fields["completion_percentage"] = percentage
     
     if "assigned_to" in task_data:
         update_fields["assignee_id"] = task_data["assigned_to"]
