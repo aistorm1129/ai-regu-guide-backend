@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
-from app.schemas.compliance import JurisdictionResponse, OrganizationJurisdictionResponse
+from app.schemas.compliance import JurisdictionResponse, OrganizationJurisdictionResponse, JurisdictionSetupRequest
 from app.api.deps import get_current_verified_user
 from app.models.user import User
 from app.models.jurisdiction import Jurisdiction, OrganizationJurisdiction
@@ -42,29 +42,41 @@ async def get_jurisdiction(
 @router.post("/organizations/{org_id}/setup")
 async def setup_jurisdiction(
     org_id: UUID,
-    jurisdiction_id: UUID,
+    request: JurisdictionSetupRequest,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Setup jurisdiction for an organization"""
     # TODO: Check user has permission for this organization
-    
+
     # Check if jurisdiction exists
     result = await db.execute(
-        select(Jurisdiction).where(Jurisdiction.id == jurisdiction_id)
+        select(Jurisdiction).where(Jurisdiction.id == request.jurisdiction_id)
     )
     jurisdiction = result.scalar_one_or_none()
-    
+
     if not jurisdiction:
         raise HTTPException(status_code=404, detail="Jurisdiction not found")
-    
+
+    # Check if organization-jurisdiction link already exists
+    existing_result = await db.execute(
+        select(OrganizationJurisdiction).where(
+            OrganizationJurisdiction.organization_id == org_id,
+            OrganizationJurisdiction.jurisdiction_id == request.jurisdiction_id
+        )
+    )
+    existing_link = existing_result.scalar_one_or_none()
+
+    if existing_link:
+        return {"message": "Jurisdiction already setup for this organization"}
+
     # Create organization-jurisdiction link
     org_jurisdiction = OrganizationJurisdiction(
         organization_id=org_id,
-        jurisdiction_id=jurisdiction_id
+        jurisdiction_id=request.jurisdiction_id
     )
-    
+
     db.add(org_jurisdiction)
     await db.commit()
-    
+
     return {"message": "Jurisdiction setup completed"}

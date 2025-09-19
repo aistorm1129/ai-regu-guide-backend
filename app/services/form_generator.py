@@ -8,8 +8,9 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 
 from app.models.compliance import ComplianceRequirement, AssessmentSession, ComplianceAssessment
-from app.models.jurisdiction import Jurisdiction
+from app.models.jurisdiction import Jurisdiction, OrganizationJurisdiction
 from app.models.user import User
+from app.models.document import Document, DocumentAnalysis, AnalysisStatus
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -22,12 +23,12 @@ class FormGenerator:
         self.openai_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
         
     async def generate_questionnaire(
-        self, 
-        db: AsyncSession, 
-        jurisdiction_id: int, 
+        self,
+        db: AsyncSession,
+        jurisdiction_id: int,
         use_assistant_api: bool = True
     ) -> Dict[str, Any]:
-        """Generate a dynamic questionnaire based on jurisdiction requirements"""
+        """Generate a dynamic questionnaire based on jurisdiction requirements and uploaded compliance data"""
         try:
             # Get jurisdiction with compliance requirements
             result = await db.execute(
@@ -36,24 +37,183 @@ class FormGenerator:
                 .where(Jurisdiction.id == jurisdiction_id)
             )
             jurisdiction = result.scalar_one_or_none()
-            
+
             if not jurisdiction:
                 raise ValueError(f"Jurisdiction {jurisdiction_id} not found")
-                
+
             compliance_requirements = jurisdiction.requirements
-            
-            if use_assistant_api and self.openai_client and jurisdiction.assistant_id:
-                return await self._generate_with_assistant_api(jurisdiction, compliance_requirements)
-            else:
-                return await self._generate_with_templates(jurisdiction, compliance_requirements)
+
+            # Use ComplianceRequirement table for fast, cost-effective questionnaire generation
+            # This table contains requirements extracted from admin documents
+            logger.info(f"Generating questionnaire from ComplianceRequirement table for jurisdiction {jurisdiction.name}")
+            return await self._generate_from_requirements(jurisdiction, compliance_requirements)
                 
         except Exception as e:
             logger.error(f"Error generating questionnaire: {str(e)}")
             raise
-    
+
+    async def _generate_from_requirements(
+        self,
+        jurisdiction: Jurisdiction,
+        compliance_requirements: List[ComplianceRequirement]
+    ) -> Dict[str, Any]:
+        """Generate questionnaire directly from ComplianceRequirement table (fast & cost-effective)"""
+        try:
+            if not compliance_requirements:
+                # Fallback to basic template if no requirements in database
+                return await self._generate_basic_template(jurisdiction)
+
+            # Group requirements by category
+            categories = {}
+            for requirement in compliance_requirements:
+                category = requirement.category or "General Compliance"
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(requirement)
+
+            # Generate questions from requirements
+            questionnaire_categories = []
+            for category_name, requirements in categories.items():
+                questions = []
+
+                for requirement in requirements[:15]:  # Limit to prevent overly long forms
+                    questions.append({
+                        "id": f"req_{requirement.requirement_id}",
+                        "question": f"How does your organization address: {requirement.title}?",
+                        "description": requirement.description,
+                        "type": "textarea",
+                        "required": requirement.criticality in ["high", "critical"],
+                        "category": category_name,
+                        "requirement_id": requirement.requirement_id,
+                        "criticality": requirement.criticality
+                    })
+
+                    # Add specific follow-up questions based on requirement type
+                    if requirement.criticality in ["high", "critical"]:
+                        questions.append({
+                            "id": f"req_{requirement.requirement_id}_evidence",
+                            "question": f"What documentation/evidence supports your compliance with: {requirement.title}?",
+                            "type": "textarea",
+                            "required": False,
+                            "category": category_name,
+                            "parent_requirement": requirement.requirement_id
+                        })
+
+                questionnaire_categories.append({
+                    "category": category_name,
+                    "description": f"Questions related to {category_name.lower()} compliance requirements",
+                    "questions": questions
+                })
+
+            return {
+                "title": f"{jurisdiction.name} Compliance Assessment",
+                "description": f"Dynamic questionnaire based on {jurisdiction.name} requirements",
+                "categories": questionnaire_categories,
+                "metadata": {
+                    "jurisdiction_id": str(jurisdiction.id),
+                    "total_requirements": len(compliance_requirements),
+                    "generation_method": "requirements_table",
+                    "generated_at": datetime.utcnow().isoformat()
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating questionnaire from requirements: {str(e)}")
+            # Fallback to basic template
+            return await self._generate_basic_template(jurisdiction)
+
+    async def _generate_basic_template(self, jurisdiction: Jurisdiction) -> Dict[str, Any]:
+        """Basic fallback questionnaire template"""
+        return {
+            "title": f"{jurisdiction.name} Basic Assessment",
+            "description": "Basic compliance assessment questionnaire",
+            "categories": [
+                {
+                    "category": "General Compliance",
+                    "description": "General compliance questions",
+                    "questions": [
+                        {
+                            "id": "basic_1",
+                            "question": "Does your organization have documented AI governance policies?",
+                            "type": "radio",
+                            "options": ["Yes", "No", "In Development"],
+                            "required": True
+                        },
+                        {
+                            "id": "basic_2",
+                            "question": "How do you currently assess AI system risks?",
+                            "type": "textarea",
+                            "required": True
+                        }
+                    ]
+                }
+            ],
+            "metadata": {
+                "jurisdiction_id": str(jurisdiction.id),
+                "generation_method": "basic_template",
+                "generated_at": datetime.utcnow().isoformat()
+            }
+        }
+
+    async def _get_uploaded_compliance_data(self, db: AsyncSession, jurisdiction_id: int) -> Dict[str, Any]:
+        """Get compliance data from uploaded documents that have been analyzed"""
+        try:
+            # Get all organizations that have this jurisdiction
+            org_result = await db.execute(
+                select(OrganizationJurisdiction.organization_id)
+                .where(OrganizationJurisdiction.jurisdiction_id == jurisdiction_id)
+            )
+            organization_ids = [row[0] for row in org_result.fetchall()]
+
+            if not organization_ids:
+                return {}
+
+            # Get documents from these organizations that have completed analysis
+            doc_result = await db.execute(
+                select(Document, DocumentAnalysis)
+                .join(DocumentAnalysis)
+                .where(
+                    Document.organization_id.in_(organization_ids),
+                    DocumentAnalysis.status == AnalysisStatus.COMPLETED,
+                    DocumentAnalysis.result.is_not(None)
+                )
+            )
+
+            compliance_data = {
+                "documents": [],
+                "extracted_requirements": [],
+                "compliance_patterns": []
+            }
+
+            for document, analysis in doc_result:
+                if analysis.result:
+                    doc_data = {
+                        "filename": document.filename,
+                        "document_type": document.document_type.value,
+                        "analysis": analysis.result
+                    }
+                    compliance_data["documents"].append(doc_data)
+
+                    # Extract any compliance rules or requirements from the analysis
+                    if "compliance_rules" in analysis.result:
+                        for rule in analysis.result["compliance_rules"]:
+                            compliance_data["extracted_requirements"].append({
+                                "title": rule.get("rule_title"),
+                                "description": rule.get("explanation"),
+                                "status": rule.get("status"),
+                                "category": rule.get("category", "General"),
+                                "source_document": document.filename
+                            })
+
+            return compliance_data
+
+        except Exception as e:
+            logger.error(f"Error getting uploaded compliance data: {str(e)}")
+            return {}
+
     async def _generate_with_assistant_api(
-        self, 
-        jurisdiction: Jurisdiction, 
+        self,
+        jurisdiction: Jurisdiction,
         compliance_requirements: List[ComplianceRequirement]
     ) -> Dict[str, Any]:
         """Generate questionnaire using OpenAI Assistant API"""
@@ -205,9 +365,10 @@ Generate 15-25 questions total, distributed across 4-6 categories. Focus on prac
             return await self._generate_with_templates(jurisdiction, compliance_requirements)
     
     async def _generate_with_templates(
-        self, 
-        jurisdiction: Jurisdiction, 
-        compliance_requirements: List[ComplianceRequirement]
+        self,
+        jurisdiction: Jurisdiction,
+        compliance_requirements: List[ComplianceRequirement],
+        uploaded_compliance_data: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Generate questionnaire using predefined templates"""
         

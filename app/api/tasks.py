@@ -8,7 +8,6 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.compliance import ComplianceTask, TaskStatus, TaskPriority
 from app.models.jurisdiction import Jurisdiction
-from app.services.seed_data import database_seeder
 from typing import List, Optional
 from uuid import UUID
 from datetime import datetime, timedelta
@@ -30,13 +29,7 @@ async def list_tasks(
 ):
     """List all compliance tasks for organization with optional filters"""
     
-    # Ensure sample data exists
-    result = await db.execute(select(ComplianceTask).where(
-        ComplianceTask.organization_id == organization.id
-    ))
-    if not result.first():
-        await database_seeder.create_sample_compliance_tasks(db, organization.id)
-        await db.commit()
+    # No automatic task creation - tasks are created from compliance requirements
     
     # Build query with filters
     query = select(ComplianceTask).options(

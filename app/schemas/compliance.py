@@ -6,6 +6,10 @@ from app.models.compliance import TaskStatus, TaskPriority, ReportType
 from app.models.jurisdiction import ComplianceStatus
 
 
+class JurisdictionSetupRequest(BaseModel):
+    jurisdiction_id: UUID
+
+
 class ComplianceTaskBase(BaseModel):
     title: str
     description: Optional[str] = None

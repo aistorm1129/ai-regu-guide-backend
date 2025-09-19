@@ -9,7 +9,6 @@ from app.core.security import decode_token
 from app.core.auth import get_user_by_id
 from app.models.user import User
 from app.models.organization import Organization, UserOrganization, UserRole
-from app.services.seed_data import database_seeder
 import uuid
 
 security = HTTPBearer()
@@ -113,15 +112,10 @@ async def get_user_organization(
     organization = result.scalar_one_or_none()
     
     if not organization:
-        # Create sample organization if none exists
-        organization = await database_seeder.seed_sample_organization(db, current_user.id)
-        await db.commit()
-        
-        if not organization:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No organization found for user"
-            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No organization found for user. Please create an organization first."
+        )
     
     return organization
 

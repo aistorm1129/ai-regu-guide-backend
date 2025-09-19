@@ -595,5 +595,56 @@ Provide the same JSON structure as document analysis, focusing on gaps identifie
             formatted.append("")
         return "\n".join(formatted)
 
+    async def extract_compliance_requirements(
+        self,
+        prompt: str,
+        document_content: str
+    ) -> List[Dict[str, Any]]:
+        """Extract compliance requirements from admin documents for ComplianceRequirement table"""
+
+        if not self.client:
+            logger.warning("OpenAI client not available, returning empty requirements")
+            return []
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a compliance expert. Extract specific, actionable compliance requirements from documents. Return only valid JSON arrays."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                max_tokens=2000,
+                temperature=0.1
+            )
+
+            result = response.choices[0].message.content
+
+            # Parse JSON response
+            try:
+                # Extract JSON from response
+                start_idx = result.find('[')
+                end_idx = result.rfind(']')
+                if start_idx != -1 and end_idx != -1:
+                    json_str = result[start_idx:end_idx + 1]
+                    requirements = json.loads(json_str)
+                    logger.info(f"Extracted {len(requirements)} compliance requirements")
+                    return requirements
+                else:
+                    logger.error("No valid JSON array found in OpenAI response")
+                    return []
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse requirements JSON: {e}")
+                return []
+
+        except Exception as e:
+            logger.error(f"Requirements extraction failed: {e}")
+            return []
+
 # Global instance
 openai_service = OpenAIService()

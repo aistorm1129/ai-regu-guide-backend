@@ -7,15 +7,15 @@ from app.models.user import User
 from app.models.document import Document, DocumentAnalysis, DocumentType, AnalysisStatus
 from app.models.organization import Organization
 from app.models.jurisdiction import Jurisdiction
+from app.models.compliance import ComplianceRequirement, ComplianceTask, TaskStatus, TaskPriority
 from app.services.document_processor import document_processor
 from app.services.openai_service import openai_service
-from app.services.seed_data import database_seeder
 from app.config import settings
 from typing import List, Optional
 from uuid import UUID
 import os
 import aiofiles
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
@@ -62,14 +62,24 @@ async def upload_document(
     async with aiofiles.open(file_path, "wb") as f:
         await f.write(content)
     
+    # Map frontend document types to backend enum values
+    type_mapping = {
+        "POLICY": "policy",
+        "PROCEDURE": "procedure",
+        "ASSESSMENT": "risk_assessment",
+        "AUDIT": "audit_report",
+        "TRAINING": "other",  # Backend doesn't have training type
+        "OTHER": "other"
+    }
+
+    mapped_type = type_mapping.get(document_type, document_type.lower())
+
     # Create document record
     document = Document(
         organization_id=organization.id,
         filename=file.filename,
         file_path=file_path,
-        file_size=len(content),
-        mime_type=file.content_type,
-        document_type=DocumentType(document_type),
+        document_type=DocumentType(mapped_type),
         description=description,
         uploaded_by=current_user.id,
         upload_date=datetime.utcnow()
@@ -100,25 +110,45 @@ async def upload_document(
 
 
 async def analyze_document_background(
-    document_id: UUID, 
-    file_path: str, 
+    document_id: UUID,
+    file_path: str,
     filename: str,
     organization_id: UUID,
     db: AsyncSession
 ):
     """Background task to analyze document"""
     try:
+        # Get document and uploader info
+        doc_result = await db.execute(
+            select(Document, User).join(User, Document.uploaded_by == User.id).where(
+                Document.id == document_id
+            )
+        )
+        doc_info = doc_result.first()
+        if not doc_info:
+            logger.error(f"Document {document_id} not found")
+            return
+
+        document, uploader = doc_info
+        is_admin = uploader.is_superuser or uploader.organization_role in ['admin', 'owner', 'compliance_officer']
+
         # Extract text from document
         extracted_text, file_type = document_processor.extract_text_from_file(file_path, filename)
-        
+
         if file_type == 'error':
             logger.error(f"Failed to extract text from {filename}")
             return
+
+        # If admin uploaded a compliance document, extract requirements for ComplianceRequirement table
+        if is_admin and document.document_type.value in ['policy', 'procedure', 'compliance_certificate']:
+            await extract_compliance_requirements_from_admin_document(
+                db, document, extracted_text, organization_id
+            )
         
         # Get organization's jurisdictions
         result = await db.execute(
-            select(Jurisdiction).join(Jurisdiction.organization_jurisdictions).where(
-                Jurisdiction.organization_jurisdictions.any(organization_id=organization_id)
+            select(Jurisdiction).join(Jurisdiction.organizations).where(
+                Jurisdiction.organizations.any(organization_id=organization_id)
             )
         )
         jurisdictions = result.scalars().all()
@@ -190,7 +220,6 @@ async def list_documents(
             "id": str(document.id),
             "filename": document.filename,
             "document_type": document.document_type.value,
-            "file_size": document.file_size,
             "upload_date": document.upload_date.isoformat(),
             "description": document.description,
             "uploaded_by": str(document.uploaded_by),
@@ -304,21 +333,23 @@ async def analyze_form_responses(
     
     # Get organization's jurisdictions
     result = await db.execute(
-        select(Jurisdiction).join(Jurisdiction.organization_jurisdictions).where(
-            Jurisdiction.organization_jurisdictions.any(organization_id=organization.id)
+        select(Jurisdiction).join(Jurisdiction.organizations).where(
+            Jurisdiction.organizations.any(organization_id=organization.id)
         )
     )
     jurisdictions = result.scalars().all()
     
     if not jurisdictions:
-        # Seed sample data if no jurisdictions
-        await database_seeder.seed_jurisdictions(db)
-        await database_seeder.seed_sample_organization(db, current_user.id)
-        await db.commit()
-        
-        # Re-fetch jurisdictions
-        result = await db.execute(select(Jurisdiction))
-        jurisdictions = result.scalars().all()
+        logger.warning("No jurisdictions found. Please upload compliance documents to create jurisdictions.")
+        return {
+            "analysis_id": None,
+            "document_id": None,
+            "result": {
+                "status": "error",
+                "message": "No compliance jurisdictions found. Please upload compliance documents first."
+            },
+            "message": "No jurisdictions found for analysis"
+        }
     
     # Combine all compliance requirements
     all_rules = []
@@ -366,3 +397,169 @@ async def analyze_form_responses(
         "result": analysis_result,
         "message": "Form analysis completed successfully"
     }
+
+
+async def extract_compliance_requirements_from_admin_document(
+    db: AsyncSession,
+    document: Document,
+    extracted_text: str,
+    organization_id: UUID
+):
+    """Extract compliance requirements from admin-uploaded documents and populate ComplianceRequirement table"""
+    try:
+        logger.info(f"Extracting compliance requirements from admin document: {document.filename}")
+
+        # Get organization's jurisdictions to determine which framework to extract for
+        jurisdictions_result = await db.execute(
+            select(Jurisdiction).join(Jurisdiction.organizations).where(
+                Jurisdiction.organizations.any(organization_id=organization_id)
+            )
+        )
+        jurisdictions = jurisdictions_result.scalars().all()
+
+        if not jurisdictions:
+            logger.warning(f"No jurisdictions found for organization {organization_id}")
+            return
+
+        # Use OpenAI to extract structured compliance requirements
+        requirements_prompt = f"""
+        Extract compliance requirements from this document: {document.filename}
+
+        Document content:
+        {extracted_text[:8000]}  # Limit to avoid token limits
+
+        Please extract specific, actionable compliance requirements and return them as a JSON array with this structure:
+        [
+            {{
+                "requirement_id": "unique_id",
+                "title": "Requirement title",
+                "description": "Detailed requirement description",
+                "category": "Category (e.g., Risk Management, Data Protection, etc.)",
+                "criticality": "high|medium|low",
+                "regulation_type": "eu_ai_act|us_ai_governance|iso_42001"
+            }}
+        ]
+
+        Focus on extracting concrete, measurable requirements that organizations need to implement.
+        Categorize by regulation type based on document content.
+        """
+
+        extracted_requirements = await openai_service.extract_compliance_requirements(
+            requirements_prompt, extracted_text
+        )
+
+        if not extracted_requirements:
+            logger.warning(f"No requirements extracted from {document.filename}")
+            return
+
+        # Store extracted requirements in ComplianceRequirement table
+        requirements_created = 0
+        for req_data in extracted_requirements:
+            try:
+                # Find matching jurisdiction based on regulation_type
+                target_jurisdiction = None
+                for jurisdiction in jurisdictions:
+                    if jurisdiction.regulation_type.value == req_data.get('regulation_type'):
+                        target_jurisdiction = jurisdiction
+                        break
+
+                if not target_jurisdiction and jurisdictions:
+                    # Fallback to first jurisdiction if no exact match
+                    target_jurisdiction = jurisdictions[0]
+
+                if target_jurisdiction:
+                    # Check if requirement already exists
+                    existing_req = await db.execute(
+                        select(ComplianceRequirement).where(
+                            and_(
+                                ComplianceRequirement.jurisdiction_id == target_jurisdiction.id,
+                                ComplianceRequirement.requirement_id == req_data.get('requirement_id')
+                            )
+                        )
+                    )
+
+                    if not existing_req.scalar_one_or_none():
+                        new_requirement = ComplianceRequirement(
+                            jurisdiction_id=target_jurisdiction.id,
+                            requirement_id=req_data.get('requirement_id'),
+                            title=req_data.get('title'),
+                            description=req_data.get('description'),
+                            category=req_data.get('category', 'General'),
+                            criticality=req_data.get('criticality', 'medium'),
+                            is_active=True,
+                            source_document=document.filename,
+                            created_at=datetime.utcnow()
+                        )
+                        db.add(new_requirement)
+                        requirements_created += 1
+
+            except Exception as req_error:
+                logger.error(f"Error creating requirement: {req_error}")
+                continue
+
+        await db.commit()
+        logger.info(f"Successfully created {requirements_created} compliance requirements from {document.filename}")
+
+        # Generate tasks from new compliance requirements
+        if requirements_created > 0:
+            await generate_tasks_from_requirements(db, organization_id, target_jurisdiction)
+
+    except Exception as e:
+        logger.error(f"Error extracting compliance requirements from admin document: {str(e)}")
+        await db.rollback()
+
+
+async def generate_tasks_from_requirements(
+    db: AsyncSession,
+    organization_id: UUID,
+    jurisdiction: Jurisdiction
+):
+    """Generate compliance tasks from newly created requirements"""
+    try:
+        # Get recent requirements for this jurisdiction
+        requirements_result = await db.execute(
+            select(ComplianceRequirement).where(
+                ComplianceRequirement.jurisdiction_id == jurisdiction.id
+            )
+        )
+        requirements = requirements_result.scalars().all()
+
+        tasks_created = 0
+        for requirement in requirements:
+            # Check if task already exists for this requirement
+            existing_task = await db.execute(
+                select(ComplianceTask).where(
+                    and_(
+                        ComplianceTask.organization_id == organization_id,
+                        ComplianceTask.jurisdiction_id == jurisdiction.id,
+                        ComplianceTask.title.ilike(f"%{requirement.title[:20]}%")
+                    )
+                )
+            )
+
+            if not existing_task.scalar_one_or_none():
+                # Determine priority from criticality
+                priority = TaskPriority.HIGH if requirement.criticality == 'high' else \
+                          TaskPriority.MEDIUM if requirement.criticality == 'medium' else \
+                          TaskPriority.LOW
+
+                # Create task
+                task = ComplianceTask(
+                    organization_id=organization_id,
+                    jurisdiction_id=jurisdiction.id,
+                    title=requirement.title,
+                    description=requirement.description,
+                    priority=priority,
+                    status=TaskStatus.TODO,
+                    due_date=datetime.utcnow() + timedelta(days=30),  # Default 30 days
+                    created_at=datetime.utcnow()
+                )
+                db.add(task)
+                tasks_created += 1
+
+        await db.commit()
+        logger.info(f"Successfully created {tasks_created} tasks from compliance requirements")
+
+    except Exception as e:
+        logger.error(f"Error generating tasks from requirements: {str(e)}")
+        await db.rollback()

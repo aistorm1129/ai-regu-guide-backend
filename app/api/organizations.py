@@ -46,7 +46,7 @@ async def get_current_organization(
         jurisdictions.append({
             "id": str(jurisdiction.id),
             "name": jurisdiction.name,
-            "code": jurisdiction.code,
+            "code": jurisdiction.regulation_type.value,  # Use regulation_type as code
             "description": jurisdiction.description,
             "regulation_type": jurisdiction.regulation_type
         })

@@ -8,7 +8,6 @@ from app.models.organization import Organization
 from app.models.document import Document, DocumentAnalysis, AnalysisStatus
 from app.models.jurisdiction import Jurisdiction, OrganizationJurisdiction
 from app.models.compliance import ComplianceTask, ComplianceRequirement, ComplianceAssessment, AssessmentSession
-from app.services.seed_data import database_seeder
 from app.services.document_assessor import document_assessor
 from app.services.form_generator import form_generator
 from fastapi import UploadFile, File, BackgroundTasks
@@ -228,8 +227,15 @@ async def get_compliance_rules(
     
     # Apply regulation filter
     if regulation_filter and regulation_filter != "all":
+        # Map frontend filter values to backend enum values
+        regulation_mapping = {
+            "iso42001": "iso_42001",
+            "eu_ai_act": "eu_ai_act",
+            "us_ai_governance": "us_ai_governance"
+        }
+        mapped_filter = regulation_mapping.get(regulation_filter, regulation_filter)
         requirements_query = requirements_query.where(
-            Jurisdiction.regulation_type == regulation_filter
+            Jurisdiction.regulation_type == mapped_filter
         )
     
     # Apply severity filter
@@ -326,12 +332,10 @@ async def get_compliance_dashboard(
 ):
     """Get compliance dashboard data"""
     
-    # Ensure sample data exists
+    # Check if jurisdictions exist - no automatic seeding
     jurisdictions_result = await db.execute(select(Jurisdiction))
     if not jurisdictions_result.first():
-        await database_seeder.seed_jurisdictions(db)
-        await database_seeder.create_sample_compliance_tasks(db, organization.id)
-        await db.commit()
+        logger.warning("No jurisdictions found. Upload compliance documents to create jurisdictions.")
     
     # Get overall compliance stats
     compliance_results = await get_compliance_results(current_user, organization, db)
@@ -587,7 +591,7 @@ def _calculate_criticality_breakdown(assessments: List[Dict]) -> Dict[str, int]:
 
 @router.get("/generate-questionnaire/{jurisdiction_id}")
 async def generate_questionnaire(
-    jurisdiction_id: int,
+    jurisdiction_id: UUID,
     current_user: User = Depends(get_current_user),
     organization: Organization = Depends(get_user_organization),
     db: AsyncSession = Depends(get_db)
@@ -641,7 +645,7 @@ async def generate_questionnaire(
 
 @router.post("/submit-questionnaire/{jurisdiction_id}")
 async def submit_questionnaire(
-    jurisdiction_id: int,
+    jurisdiction_id: UUID,
     submission_data: Dict[str, Any],
     current_user: User = Depends(get_current_user),
     organization: Organization = Depends(get_user_organization),
