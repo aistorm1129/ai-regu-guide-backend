@@ -130,8 +130,8 @@ async def analyze_document_background(
         # Combine all compliance requirements
         all_rules = []
         for jurisdiction in jurisdictions:
-            if jurisdiction.compliance_requirements:
-                all_rules.extend(jurisdiction.compliance_requirements)
+            if jurisdiction.requirements:
+                all_rules.extend(jurisdiction.requirements)
         
         # Create analysis record
         analysis = DocumentAnalysis(

@@ -308,9 +308,6 @@ async def export_compliance_data(
                 "status": task.status.value,
                 "priority": task.priority.value,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
-                "estimated_hours": task.estimated_hours,
-                "actual_hours": task.actual_hours,
-                "completion_percentage": task.completion_percentage,
                 "created_at": task.created_at.isoformat()
             })
         

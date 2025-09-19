@@ -1,8 +1,8 @@
-"""Initial migration - complete schema from current models
+"""Initial migration with all models
 
-Revision ID: 67a44582e70b
+Revision ID: eb82e63c95fa
 Revises: 
-Create Date: 2025-09-04 02:23:09.766669
+Create Date: 2025-09-17 16:24:35.484413
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '67a44582e70b'
+revision: str = 'eb82e63c95fa'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -40,9 +40,13 @@ def upgrade() -> None:
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('regulation_type', sa.Enum('EU_AI_ACT', 'US_AI_GOVERNANCE', 'ISO_42001', 'GDPR', 'CCPA', 'CUSTOM', name='regulationtype'), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('requirements', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('requirements_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('region', sa.String(length=100), nullable=True),
     sa.Column('effective_date', sa.DateTime(), nullable=True),
+    sa.Column('assistant_id', sa.String(length=100), nullable=True),
+    sa.Column('vector_store_id', sa.String(length=100), nullable=True),
+    sa.Column('source_file_id', sa.String(length=100), nullable=True),
+    sa.Column('assistant_created_at', sa.DateTime(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
@@ -73,30 +77,50 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
-    op.create_table('ai_systems',
+    op.create_table('assessment_sessions',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('organization_id', sa.UUID(), nullable=False),
-    sa.Column('name', sa.String(length=255), nullable=False),
-    sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('system_type', sa.String(length=100), nullable=True),
-    sa.Column('risk_level', sa.Enum('MINIMAL', 'LIMITED', 'HIGH', 'UNACCEPTABLE', name='airisklevel'), nullable=True),
-    sa.Column('is_high_risk', sa.Boolean(), nullable=True),
-    sa.Column('deployment_date', sa.DateTime(), nullable=True),
-    sa.Column('last_assessment', sa.DateTime(), nullable=True),
-    sa.Column('system_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('session_type', sa.String(length=50), nullable=False),
+    sa.Column('source_document_name', sa.String(length=255), nullable=True),
+    sa.Column('source_document_path', sa.String(length=500), nullable=True),
+    sa.Column('overall_score', sa.Integer(), nullable=True),
+    sa.Column('total_requirements', sa.Integer(), nullable=False),
+    sa.Column('compliant_count', sa.Integer(), nullable=False),
+    sa.Column('partial_count', sa.Integer(), nullable=False),
+    sa.Column('non_compliant_count', sa.Integer(), nullable=False),
+    sa.Column('not_addressed_count', sa.Integer(), nullable=False),
+    sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.Column('completed_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('compliance_documents',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('jurisdiction_id', sa.UUID(), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('document_type', sa.String(length=50), nullable=False),
+    sa.Column('file_path', sa.String(length=500), nullable=False),
+    sa.Column('version', sa.String(length=50), nullable=True),
+    sa.Column('effective_date', sa.DateTime(), nullable=True),
+    sa.Column('uploaded_by', sa.UUID(), nullable=False),
+    sa.Column('upload_date', sa.DateTime(), nullable=True),
+    sa.Column('is_processed', sa.Boolean(), nullable=True),
+    sa.Column('processing_status', sa.String(length=20), nullable=True),
+    sa.Column('extracted_text', sa.Text(), nullable=True),
+    sa.Column('extraction_metadata', sa.JSON(), nullable=True),
+    sa.ForeignKeyConstraint(['jurisdiction_id'], ['jurisdictions.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['uploaded_by'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('compliance_reports',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('organization_id', sa.UUID(), nullable=False),
-    sa.Column('report_type', sa.Enum('COMPLIANCE_SUMMARY', 'GAP_ANALYSIS', 'RISK_ASSESSMENT', 'AUDIT_REPORT', 'EXECUTIVE_SUMMARY', 'DETAILED_COMPLIANCE', name='reporttype'), nullable=False),
+    sa.Column('report_type', sa.Enum('DASHBOARD', 'AUDIT_REPORT', name='reporttype'), nullable=False),
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('file_path', sa.String(length=500), nullable=True),
-    sa.Column('data', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('generated_date', sa.DateTime(), nullable=True),
     sa.Column('valid_until', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
@@ -113,12 +137,11 @@ def upgrade() -> None:
     sa.Column('assignee_id', sa.UUID(), nullable=True),
     sa.Column('due_date', sa.DateTime(), nullable=True),
     sa.Column('completed_date', sa.DateTime(), nullable=True),
-    sa.Column('estimated_hours', sa.Float(), nullable=True),
-    sa.Column('actual_hours', sa.Float(), nullable=True),
-    sa.Column('completion_percentage', sa.Float(), nullable=True),
+    sa.Column('source_type', sa.String(length=50), nullable=True),
+    sa.Column('source_id', sa.UUID(), nullable=True),
+    sa.Column('requirement_id', sa.String(length=255), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.Column('task_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.ForeignKeyConstraint(['assignee_id'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['jurisdiction_id'], ['jurisdictions.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
@@ -129,13 +152,10 @@ def upgrade() -> None:
     sa.Column('organization_id', sa.UUID(), nullable=False),
     sa.Column('filename', sa.String(length=255), nullable=False),
     sa.Column('file_path', sa.String(length=500), nullable=False),
-    sa.Column('file_size', sa.Integer(), nullable=True),
-    sa.Column('mime_type', sa.String(length=100), nullable=True),
     sa.Column('document_type', sa.Enum('POLICY', 'PROCEDURE', 'RISK_ASSESSMENT', 'AUDIT_REPORT', 'COMPLIANCE_CERTIFICATE', 'TECHNICAL_DOCUMENTATION', 'DATA_PROTECTION', 'OTHER', name='documenttype'), nullable=False),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('uploaded_by', sa.UUID(), nullable=True),
     sa.Column('upload_date', sa.DateTime(), nullable=True),
-    sa.Column('file_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['uploaded_by'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
@@ -151,18 +171,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['question_id'], ['form_questions.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('oauth_accounts',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('user_id', sa.UUID(), nullable=False),
-    sa.Column('oauth_name', sa.String(length=100), nullable=False),
-    sa.Column('oauth_id', sa.String(length=255), nullable=False),
-    sa.Column('access_token', sa.Text(), nullable=True),
-    sa.Column('refresh_token', sa.Text(), nullable=True),
-    sa.Column('expires_at', sa.DateTime(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('organization_jurisdictions',
@@ -187,22 +195,27 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('user_id', 'organization_id')
     )
-    op.create_table('system_compliance',
+    op.create_table('compliance_requirements',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('system_id', sa.UUID(), nullable=False),
     sa.Column('jurisdiction_id', sa.UUID(), nullable=False),
-    sa.Column('compliance_score', sa.Float(), nullable=True),
-    sa.Column('last_assessment', sa.DateTime(), nullable=True),
-    sa.Column('assessment_results', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-    sa.Column('gaps_identified', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-    sa.Column('remediation_plan', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('source_document_id', sa.UUID(), nullable=True),
+    sa.Column('requirement_id', sa.String(length=100), nullable=False),
+    sa.Column('title', sa.String(length=500), nullable=False),
+    sa.Column('category', sa.String(length=255), nullable=False),
+    sa.Column('description', sa.Text(), nullable=False),
+    sa.Column('page_number', sa.Integer(), nullable=True),
+    sa.Column('section_reference', sa.String(length=100), nullable=True),
+    sa.Column('criticality', sa.String(length=20), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['jurisdiction_id'], ['jurisdictions.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['system_id'], ['ai_systems.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['source_document_id'], ['compliance_documents.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('document_analyses',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('document_id', sa.UUID(), nullable=False),
+    sa.Column('jurisdiction_id', sa.UUID(), nullable=True),
     sa.Column('analysis_type', sa.String(length=100), nullable=False),
     sa.Column('status', sa.Enum('PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', name='analysisstatus'), nullable=False),
     sa.Column('result', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
@@ -213,6 +226,28 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('completed_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['document_id'], ['documents.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['jurisdiction_id'], ['jurisdictions.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('compliance_assessments',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('session_id', sa.UUID(), nullable=True),
+    sa.Column('organization_id', sa.UUID(), nullable=False),
+    sa.Column('requirement_id', sa.UUID(), nullable=False),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('evidence_text', sa.Text(), nullable=True),
+    sa.Column('evidence_type', sa.String(length=50), nullable=True),
+    sa.Column('evidence_id', sa.UUID(), nullable=True),
+    sa.Column('explanation', sa.Text(), nullable=True),
+    sa.Column('gap_description', sa.Text(), nullable=True),
+    sa.Column('recommendation', sa.Text(), nullable=True),
+    sa.Column('confidence_score', sa.Float(), nullable=True),
+    sa.Column('assessed_at', sa.DateTime(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['requirement_id'], ['compliance_requirements.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['session_id'], ['assessment_sessions.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###
@@ -220,16 +255,17 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('compliance_assessments')
     op.drop_table('document_analyses')
-    op.drop_table('system_compliance')
+    op.drop_table('compliance_requirements')
     op.drop_table('user_organizations')
     op.drop_table('organization_jurisdictions')
-    op.drop_table('oauth_accounts')
     op.drop_table('form_responses')
     op.drop_table('documents')
     op.drop_table('compliance_tasks')
     op.drop_table('compliance_reports')
-    op.drop_table('ai_systems')
+    op.drop_table('compliance_documents')
+    op.drop_table('assessment_sessions')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_table('users')
     op.drop_table('organizations')

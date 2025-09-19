@@ -13,7 +13,9 @@ config = context.config
 # Set sqlalchemy.url from environment variable if available
 database_url = os.getenv('DATABASE_URL')
 if database_url:
-    # Keep postgresql:// format for synchronous migrations (don't use asyncpg for Alembic)
+    # Convert asyncpg to psycopg2 for synchronous migrations
+    if 'postgresql+asyncpg://' in database_url:
+        database_url = database_url.replace('postgresql+asyncpg://', 'postgresql://')
     config.set_main_option('sqlalchemy.url', database_url)
 
 # Interpret the config file for Python logging.

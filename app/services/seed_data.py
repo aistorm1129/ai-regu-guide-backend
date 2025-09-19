@@ -164,12 +164,14 @@ class DatabaseSeeder:
         """Create a sample organization for a user"""
         
         # Check if user already has an organization
+        from app.models.organization import UserOrganization
         result = await db.execute(
-            select(Organization).join(Organization.users).where(User.id == user_id)
+            select(Organization).join(UserOrganization).where(UserOrganization.user_id == user_id)
         )
-        if result.first():
+        existing_org = result.scalar_one_or_none()
+        if existing_org:
             logger.info("User already has an organization")
-            return
+            return existing_org
         
         organization = Organization(
             name="Sample AI Company",
@@ -183,11 +185,11 @@ class DatabaseSeeder:
         await db.flush()
         
         # Add user to organization
-        from app.models.organization import UserOrganization
+        from app.models.organization import UserOrganization, UserRole
         user_org = UserOrganization(
             user_id=user_id,
             organization_id=organization.id,
-            role="ADMIN"
+            role=UserRole.ADMIN
         )
         db.add(user_org)
         
@@ -214,7 +216,6 @@ class DatabaseSeeder:
                 "priority": "high",
                 "status": "todo",
                 "due_date": datetime.now() + timedelta(days=30),
-                "estimated_hours": 40
             },
             {
                 "title": "Conduct Algorithm Bias Testing",
@@ -223,7 +224,6 @@ class DatabaseSeeder:
                 "priority": "medium",
                 "status": "in_progress",
                 "due_date": datetime.now() + timedelta(days=45),
-                "estimated_hours": 60
             },
             {
                 "title": "Develop Human Oversight Procedures",
@@ -232,7 +232,6 @@ class DatabaseSeeder:
                 "priority": "high",
                 "status": "todo",
                 "due_date": datetime.now() + timedelta(days=21),
-                "estimated_hours": 30
             },
             {
                 "title": "NIST AI Risk Management Framework Implementation",
@@ -241,7 +240,6 @@ class DatabaseSeeder:
                 "priority": "medium", 
                 "status": "todo",
                 "due_date": datetime.now() + timedelta(days=60),
-                "estimated_hours": 80
             },
             {
                 "title": "AI Management System Documentation",
@@ -250,7 +248,6 @@ class DatabaseSeeder:
                 "priority": "medium",
                 "status": "in_progress", 
                 "due_date": datetime.now() + timedelta(days=90),
-                "estimated_hours": 100
             }
         ]
         
